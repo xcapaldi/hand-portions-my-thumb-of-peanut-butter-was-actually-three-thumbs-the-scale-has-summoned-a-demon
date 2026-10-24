@@ -94,6 +94,18 @@ button {
 }
 form button[type="submit"] { width: 100%; }
 
+.row { display: flex; gap: 12px; }
+.row > * { flex: 1; }
+label.button {
+  justify-content: center;
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+}
+
 .hint { color: var(--muted); font-size: 0.85rem; margin: 4px 0 12px; }
 
 .table-wrap { overflow-x: auto; }

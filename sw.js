@@ -1,4 +1,4 @@
-const CACHE = 'hand-portions-v1';
+const CACHE = 'hand-portions-v2';
 const ASSETS = [
   './',
   'index.html',

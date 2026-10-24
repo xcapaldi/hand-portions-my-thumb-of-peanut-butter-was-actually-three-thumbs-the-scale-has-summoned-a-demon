@@ -33,6 +33,7 @@ const getSettings = async () =>
   ({ ...DEFAULT_SETTINGS, ...(await tx('settings', 'readonly', s => s.get('settings'))) });
 const saveSettings = settings => tx('settings', 'readwrite', s => s.put(settings, 'settings'));
 const getDays = () => tx('days', 'readonly', s => s.getAll());
+const putDays = days => tx('days', 'readwrite', s => days.forEach(day => s.put(day)));
 
 // Read-modify-write inside one transaction so rapid adds can't clobber each other.
 async function addToDay(date, portions, weightKg) {
@@ -117,6 +118,62 @@ async function render() {
   }));
   emptyMsg.hidden = days.length > 0;
 }
+
+// --- CSV -------------------------------------------------------------------
+// Columns: date, weight_kg or weight_lb (current units), fat, carbs, veggies, protein.
+
+async function exportCsv() {
+  const days = (await getDays()).sort((a, b) => a.date.localeCompare(b.date));
+  const lines = [['date', `weight_${settings.units}`, ...PORTIONS].join(',')];
+  for (const day of days) {
+    const weight = day.weightKg == null ? '' : toDisplayWeight(day.weightKg, settings.units);
+    lines.push([day.date, weight, ...PORTIONS.map(k => day[k])].join(','));
+  }
+  const url = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `hand-portions-${todayLocal()}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function parseCsv(text) {
+  const [header, ...rows] = text.replace(/^\uFEFF/, '').trim().split(/\r?\n/).map(line => line.split(',').map(c => c.trim()));
+  const col = name => header.indexOf(name);
+  const weightCol = col('weight_kg') >= 0 ? col('weight_kg') : col('weight_lb');
+  const weightUnits = col('weight_kg') >= 0 ? 'kg' : 'lb';
+  if (col('date') < 0) throw new Error('Missing "date" column');
+
+  return rows.filter(r => r.some(Boolean)).map((r, i) => {
+    const date = r[col('date')];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`Row ${i + 2}: bad date "${date}"`);
+    const day = { date, weightKg: null };
+    const weight = weightCol >= 0 ? num(r[weightCol]) : null;
+    if (weight != null) day.weightKg = fromDisplayWeight(weight, weightUnits);
+    for (const k of PORTIONS) {
+      day[k] = col(k) >= 0 ? num(r[col(k)]) || 0 : 0;
+      if (Number.isNaN(day[k])) throw new Error(`Row ${i + 2}: bad ${k}`);
+    }
+    if (Number.isNaN(day.weightKg)) throw new Error(`Row ${i + 2}: bad weight`);
+    return day;
+  });
+}
+
+document.getElementById('export').addEventListener('click', exportCsv);
+
+document.getElementById('import').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const days = parseCsv(await file.text());
+    if (!confirm(`Import ${days.length} day(s)? Existing days with the same date are replaced.`)) return;
+    await putDays(days);
+    render();
+  } catch (err) {
+    alert(`Import failed: ${err.message}`);
+  }
+});
 
 settingsToggle.addEventListener('click', () => {
   settingsForm.hidden = !settingsForm.hidden;
