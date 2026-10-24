@@ -1,0 +1,107 @@
+:root {
+  --bg: #f6f7f5;
+  --fg: #1d2420;
+  --muted: #5d6862;
+  --card: #ffffff;
+  --border: #d8ddd9;
+  --accent: #2f6f4f;
+  --accent-fg: #ffffff;
+  --over: #b3412e;
+  --hit: #2f6f4f;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141816;
+    --fg: #e6ebe8;
+    --muted: #9aa59f;
+    --card: #1d2320;
+    --border: #333c37;
+    --accent: #5fb487;
+    --accent-fg: #0d1a13;
+    --over: #f08a74;
+    --hit: #74c99a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+header h1 { margin: 0; font-size: 1.2rem; }
+header button {
+  background: transparent;
+  color: inherit;
+  border: 1px solid currentColor;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h2 { margin: 0 0 12px; font-size: 1.05rem; }
+
+form, section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+input, select {
+  width: 9rem;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+button {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+}
+form button[type="submit"] { width: 100%; }
+
+.hint { color: var(--muted); font-size: 0.85rem; margin: 4px 0 12px; }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table { font-size: 0.9rem; }
+th, td { padding: 6px 3px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
+td .target { color: var(--muted); font-size: 0.8rem; }
+td.hit { color: var(--hit); font-weight: 600; }
+td.over { color: var(--over); font-weight: 600; }
