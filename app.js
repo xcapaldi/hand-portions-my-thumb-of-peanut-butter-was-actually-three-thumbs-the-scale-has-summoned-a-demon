@@ -4,16 +4,25 @@ const PORTIONS = ['fat', 'carbs', 'veggies', 'protein'];
 const LB_PER_KG = 2.20462;
 const DEFAULT_SETTINGS = { units: 'kg', fat: 0, carbs: 0, veggies: 0, protein: 0 };
 
+// --- Settings (localStorage) ----------------------------------------------
+
+function getSettings() {
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('settings')) };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+const saveSettings = settings => localStorage.setItem('settings', JSON.stringify(settings));
+
 // --- IndexedDB -------------------------------------------------------------
 // "days" holds one row per date: { date, fat, carbs, veggies, protein, weightKg }.
-// "settings" holds a single row under the key "settings".
 
 const dbPromise = new Promise((resolve, reject) => {
   const req = indexedDB.open('hand-portions', 1);
   req.onupgradeneeded = () => {
-    const db = req.result;
-    db.createObjectStore('days', { keyPath: 'date' });
-    db.createObjectStore('settings');
+    req.result.createObjectStore('days', { keyPath: 'date' });
   };
   req.onsuccess = () => resolve(req.result);
   req.onerror = () => reject(req.error);
@@ -29,9 +38,6 @@ async function tx(store, mode, fn) {
   });
 }
 
-const getSettings = async () =>
-  ({ ...DEFAULT_SETTINGS, ...(await tx('settings', 'readonly', s => s.get('settings'))) });
-const saveSettings = settings => tx('settings', 'readwrite', s => s.put(settings, 'settings'));
 const getDays = () => tx('days', 'readonly', s => s.getAll());
 const putDays = days => tx('days', 'readwrite', s => days.forEach(day => s.put(day)));
 
@@ -82,7 +88,7 @@ const entryForm = document.getElementById('entry');
 const daysBody = document.getElementById('days');
 const emptyMsg = document.getElementById('empty');
 
-let settings = { ...DEFAULT_SETTINGS };
+let settings = getSettings();
 
 function fillSettingsForm() {
   settingsForm.units.value = settings.units;
@@ -180,11 +186,11 @@ settingsToggle.addEventListener('click', () => {
   settingsToggle.setAttribute('aria-expanded', String(!settingsForm.hidden));
 });
 
-settingsForm.addEventListener('submit', async e => {
+settingsForm.addEventListener('submit', e => {
   e.preventDefault();
   settings = { units: settingsForm.units.value };
   for (const k of PORTIONS) settings[k] = num(settingsForm[k].value) || 0;
-  await saveSettings(settings);
+  saveSettings(settings);
   fillSettingsForm();
   settingsForm.hidden = true;
   settingsToggle.setAttribute('aria-expanded', 'false');
@@ -197,17 +203,15 @@ entryForm.addEventListener('submit', async e => {
   for (const k of PORTIONS) portions[k] = num(entryForm[k].value) || 0;
   const weight = num(entryForm.weight.value);
   const weightKg = weight == null ? null : fromDisplayWeight(weight, settings.units);
-  await addToDay(entryForm.date.value, portions, weightKg);
+  // Clear before awaiting so anything typed while saving isn't wiped.
   for (const k of [...PORTIONS, 'weight']) entryForm[k].value = '';
+  await addToDay(entryForm.date.value, portions, weightKg);
   render();
 });
 
-(async () => {
-  entryForm.date.value = todayLocal();
-  settings = await getSettings();
-  fillSettingsForm();
-  render();
-})();
+entryForm.date.value = todayLocal();
+fillSettingsForm();
+render();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js');
