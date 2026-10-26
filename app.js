@@ -15,9 +15,12 @@ function getSettings() {
 }
 
 const saveSettings = settings => localStorage.setItem('settings', JSON.stringify(settings));
+const currentTargets = () => Object.fromEntries(PORTIONS.map(k => [k, settings[k]]));
 
 // --- IndexedDB -------------------------------------------------------------
-// "days" holds one row per date: { date, fat, carbs, veggies, protein, weightKg }.
+// "days" holds one row per date: { date, fat, carbs, veggies, protein, weightKg, targets }.
+// targets is a copy of { fat, carbs, veggies, protein } as they were for that day,
+// so changing settings later doesn't rewrite history.
 
 const dbPromise = new Promise((resolve, reject) => {
   const req = indexedDB.open('hand-portions', 1);
@@ -42,22 +45,32 @@ const getDays = () => tx('days', 'readonly', s => s.getAll());
 const putDays = days => tx('days', 'readwrite', s => days.forEach(day => s.put(day)));
 
 // Read-modify-write inside one transaction so rapid adds can't clobber each other.
-async function addToDay(date, portions, weightKg) {
+async function updateDay(date, fn) {
   const db = await dbPromise;
   return new Promise((resolve, reject) => {
     const t = db.transaction('days', 'readwrite');
     const store = t.objectStore('days');
     const get = store.get(date);
     get.onsuccess = () => {
-      const day = get.result || { date, fat: 0, carbs: 0, veggies: 0, protein: 0, weightKg: null };
-      for (const k of PORTIONS) day[k] = round(day[k] + portions[k]);
-      if (weightKg != null) day.weightKg = weightKg;
-      store.put(day);
+      const day = fn(get.result);
+      if (day) store.put(day);
     };
     t.oncomplete = resolve;
     t.onerror = () => reject(t.error);
   });
 }
+
+// A new day starts with the current targets.
+const addToDay = (date, portions, weightKg) => updateDay(date, day => {
+  day ||= { date, fat: 0, carbs: 0, veggies: 0, protein: 0, weightKg: null };
+  day.targets ||= currentTargets();
+  for (const k of PORTIONS) day[k] = round(day[k] + portions[k]);
+  if (weightKg != null) day.weightKg = weightKg;
+  return day;
+});
+
+// Only touches a day that already exists.
+const setDayTargets = (date, targets) => updateDay(date, day => day && { ...day, targets });
 
 // --- Helpers ---------------------------------------------------------------
 
@@ -119,21 +132,24 @@ async function render() {
     date.title = day.date;
     const weight = document.createElement('td');
     weight.textContent = day.weightKg == null ? '–' : toDisplayWeight(day.weightKg, settings.units);
-    tr.append(date, weight, ...PORTIONS.map(k => cell(day[k], settings[k])));
+    const targets = day.targets || currentTargets();
+    tr.append(date, weight, ...PORTIONS.map(k => cell(day[k], targets[k])));
     return tr;
   }));
   emptyMsg.hidden = days.length > 0;
 }
 
 // --- CSV -------------------------------------------------------------------
-// Columns: date, weight_kg or weight_lb (current units), fat, carbs, veggies, protein.
+// Columns: date, weight_kg or weight_lb (current units), fat, carbs, veggies, protein,
+// then fat_target, carbs_target, veggies_target, protein_target.
 
 async function exportCsv() {
   const days = (await getDays()).sort((a, b) => a.date.localeCompare(b.date));
-  const lines = [['date', `weight_${settings.units}`, ...PORTIONS].join(',')];
+  const lines = [['date', `weight_${settings.units}`, ...PORTIONS, ...PORTIONS.map(k => `${k}_target`)].join(',')];
   for (const day of days) {
     const weight = day.weightKg == null ? '' : toDisplayWeight(day.weightKg, settings.units);
-    lines.push([day.date, weight, ...PORTIONS.map(k => day[k])].join(','));
+    const targets = day.targets || currentTargets();
+    lines.push([day.date, weight, ...PORTIONS.map(k => day[k]), ...PORTIONS.map(k => targets[k])].join(','));
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/csv' }));
   const a = document.createElement('a');
@@ -153,12 +169,14 @@ function parseCsv(text) {
   return rows.filter(r => r.some(Boolean)).map((r, i) => {
     const date = r[col('date')];
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`Row ${i + 2}: bad date "${date}"`);
-    const day = { date, weightKg: null };
+    const day = { date, weightKg: null, targets: currentTargets() };
     const weight = weightCol >= 0 ? num(r[weightCol]) : null;
     if (weight != null) day.weightKg = fromDisplayWeight(weight, weightUnits);
     for (const k of PORTIONS) {
       day[k] = col(k) >= 0 ? num(r[col(k)]) || 0 : 0;
       if (Number.isNaN(day[k])) throw new Error(`Row ${i + 2}: bad ${k}`);
+      if (col(`${k}_target`) >= 0) day.targets[k] = num(r[col(`${k}_target`)]) || 0;
+      if (Number.isNaN(day.targets[k])) throw new Error(`Row ${i + 2}: bad ${k}_target`);
     }
     if (Number.isNaN(day.weightKg)) throw new Error(`Row ${i + 2}: bad weight`);
     return day;
@@ -186,11 +204,12 @@ settingsToggle.addEventListener('click', () => {
   settingsToggle.setAttribute('aria-expanded', String(!settingsForm.hidden));
 });
 
-settingsForm.addEventListener('submit', e => {
+settingsForm.addEventListener('submit', async e => {
   e.preventDefault();
   settings = { units: settingsForm.units.value };
   for (const k of PORTIONS) settings[k] = num(settingsForm[k].value) || 0;
   saveSettings(settings);
+  await setDayTargets(todayLocal(), currentTargets());
   fillSettingsForm();
   settingsForm.hidden = true;
   settingsToggle.setAttribute('aria-expanded', 'false');
